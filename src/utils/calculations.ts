@@ -1,4 +1,9 @@
-import type { Ingredient, DishIngredient, Dish, PriceSuggestion, IngredientStock, PurchaseRecord, DailySales, RestockSuggestion, DishCategory } from '@/types'
+import type {
+  Ingredient, DishIngredient, Dish, PriceSuggestion, IngredientStock,
+  PurchaseRecord, DailySales, RestockSuggestion, DishCategory,
+  DishHealthAnalysis, DishHealthCategory
+} from '@/types'
+import { format } from 'date-fns'
 
 export function calculateDishCost(
   dishIngredients: DishIngredient[],
@@ -201,22 +206,26 @@ export function calculateRestockSuggestions(
   dailySales: DailySales[],
   dishIngredients: DishIngredient[],
   dishes: Dish[],
-  lookbackDays: number = 7
+  lookbackDays: number = 7,
+  endDate?: string
 ): RestockSuggestion[] {
   const stocks = calculateIngredientStocks(ingredients, purchaseRecords, dailySales, dishIngredients, dishes)
 
+  const effectiveEndDate = endDate || format(new Date(), 'yyyy-MM-dd')
   const uniqueDates = Array.from(new Set(dailySales.map((s) => s.date))).sort()
-  const recentDates = uniqueDates.slice(-lookbackDays)
-  const daysWithSales = recentDates.length
+  const cutoffDate = uniqueDates.find((d) => d <= effectiveEndDate) || effectiveEndDate
+  const allValidDates = uniqueDates.filter((d) => d <= cutoffDate)
+  const recentDates = allValidDates.slice(-lookbackDays)
+  const daysInWindow = recentDates.length
 
-  const dishTotalPortions = new Map<string, number>()
+  const dishPortionsInWindow = new Map<string, number>()
   dailySales
     .filter((s) => recentDates.includes(s.date))
     .forEach((s) => {
-      dishTotalPortions.set(s.dishId, (dishTotalPortions.get(s.dishId) || 0) + s.portionsSold)
+      dishPortionsInWindow.set(s.dishId, (dishPortionsInWindow.get(s.dishId) || 0) + s.portionsSold)
     })
 
-  const highSalesDishIds = Array.from(dishTotalPortions.entries())
+  const highSalesDishIds = Array.from(dishPortionsInWindow.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([id]) => id)
@@ -224,20 +233,49 @@ export function calculateRestockSuggestions(
     highSalesDishIds.map((id) => dishes.find((d) => d.id === id)?.name || '')
   )
 
-  return stocks.map((stock) => {
-    let dailyConsumption = 0
-    if (daysWithSales > 0) {
-      dailyConsumption = stock.totalConsumed / daysWithSales
+  const dishAvgDailyPortions = new Map<string, number>()
+  dishPortionsInWindow.forEach((portions, dishId) => {
+    dishAvgDailyPortions.set(dishId, daysInWindow > 0 ? portions / daysInWindow : 0)
+  })
+
+  const ingredientDailyConsumption = new Map<string, number>()
+  const ingredientConsumingDishes = new Map<string, { dishName: string; dailyUsage: number; portions: number }[]>()
+
+  dishIngredients.forEach((di) => {
+    const avgDailyPortions = dishAvgDailyPortions.get(di.dishId) || 0
+    const totalPortions = dishPortionsInWindow.get(di.dishId) || 0
+    if (avgDailyPortions <= 0) return
+
+    const dailyUsage = avgDailyPortions * di.quantity
+    const current = ingredientDailyConsumption.get(di.ingredientId) || 0
+    ingredientDailyConsumption.set(di.ingredientId, current + dailyUsage)
+
+    const dish = dishes.find((d) => d.id === di.dishId)
+    if (dish) {
+      const consumingList = ingredientConsumingDishes.get(di.ingredientId) || []
+      consumingList.push({
+        dishName: dish.name,
+        dailyUsage: Math.round(dailyUsage * 1000) / 1000,
+        portions: totalPortions,
+      })
+      ingredientConsumingDishes.set(di.ingredientId, consumingList)
     }
+  })
+
+  return stocks.map((stock) => {
+    const ingredient = ingredients.find((i) => i.id === stock.ingredientId)
+    const dailyConsumption = ingredientDailyConsumption.get(stock.ingredientId) || 0
+    const consumingDishes = ingredientConsumingDishes.get(stock.ingredientId) || []
 
     const daysRemaining = dailyConsumption > 0 ? stock.stock / dailyConsumption : 999
     const targetStock = dailyConsumption * 7
     const suggestedPurchase = Math.max(0, Math.round((targetStock - stock.stock) * 10) / 10)
+    const estimatedCost = Math.round(suggestedPurchase * (ingredient?.currentPrice || 0) * 100) / 100
 
     let priority: 'high' | 'medium' | 'low' = 'low'
-    if (stock.stock <= 0 || daysRemaining <= 1) {
+    if (stock.stock <= 0 || (dailyConsumption > 0 && daysRemaining <= 1)) {
       priority = 'high'
-    } else if (daysRemaining <= 3) {
+    } else if (dailyConsumption > 0 && daysRemaining <= 3) {
       priority = 'medium'
     }
 
@@ -253,6 +291,124 @@ export function calculateRestockSuggestions(
       suggestedPurchase,
       priority,
       affectedHighSalesDishes,
+      estimatedCost,
+      consumingDishes: consumingDishes.sort((a, b) => b.dailyUsage - a.dailyUsage),
     }
   })
 }
+
+export function calculateDishHealth(
+  filteredSales: DailySales[],
+  dishes: Dish[],
+  dishIngredients: DishIngredient[],
+  ingredients: Ingredient[],
+  lookbackDays: number
+): DishHealthAnalysis[] {
+  const uniqueDates = Array.from(new Set(filteredSales.map((s) => s.date))).sort()
+  const daysInWindow = Math.min(uniqueDates.length, lookbackDays)
+
+  const dishStats = new Map<string, {
+    name: string
+    category: string
+    totalPortions: number
+    totalRevenue: number
+    totalProfit: number
+    totalCost: number
+  }>()
+
+  filteredSales.forEach((s) => {
+    const existing = dishStats.get(s.dishId) || {
+      name: s.dishName,
+      category: s.category,
+      totalPortions: 0,
+      totalRevenue: 0,
+      totalProfit: 0,
+      totalCost: 0,
+    }
+    existing.totalPortions += s.portionsSold
+    existing.totalRevenue += s.revenue
+    existing.totalProfit += s.grossProfit
+    existing.totalCost += s.totalCost
+    dishStats.set(s.dishId, existing)
+  })
+
+  const allPortions = Array.from(dishStats.values()).map((d) => d.totalPortions)
+  const allMargins = Array.from(dishStats.values()).map((d) => d.totalRevenue > 0 ? (d.totalProfit / d.totalRevenue) * 100 : 0)
+  const avgPortions = allPortions.length > 0 ? allPortions.reduce((a, b) => a + b, 0) / allPortions.length : 0
+  const avgMargin = allMargins.length > 0 ? allMargins.reduce((a, b) => a + b, 0) / allMargins.length : 0
+
+  const results: DishHealthAnalysis[] = []
+
+  dishStats.forEach((stats, dishId) => {
+    const dish = dishes.find((d) => d.id === dishId)
+    if (!dish) return
+
+    const margin = stats.totalRevenue > 0 ? Math.round((stats.totalProfit / stats.totalRevenue) * 1000) / 10 : 0
+    const avgDailyPortions = daysInWindow > 0 ? stats.totalPortions / daysInWindow : 0
+    const priceSuggestion = suggestPrice(dish, dishIngredients.filter((di) => di.dishId === dishId), ingredients)
+    const needsPriceIncrease = priceSuggestion.marginGap > 0 && priceSuggestion.priceIncrease > 0
+
+    let category: DishHealthCategory = 'normal'
+    let categoryLabel = '表现正常'
+    let suggestion = '继续观察'
+    let detail = ''
+
+    const isHighSales = stats.totalPortions >= avgPortions * 0.8
+    const isLowSales = stats.totalPortions < avgPortions * 0.5
+    const isHighMargin = margin >= avgMargin + 5
+    const isLowMargin = margin < avgMargin - 5
+
+    if (isHighSales && isHighMargin) {
+      category = 'star'
+      categoryLabel = '明星菜品'
+      suggestion = '重点推广，可考虑小幅涨价'
+      detail = `销量远高于平均（日均${avgDailyPortions.toFixed(1)}份），毛利率${formatPercent(margin)}表现优秀，是店铺核心收入来源`
+    } else if (isHighSales && isLowMargin) {
+      category = 'problem'
+      categoryLabel = '问题菜品'
+      suggestion = needsPriceIncrease ? '建议涨价' : '优化配方降低成本'
+      detail = `销量很高（日均${avgDailyPortions.toFixed(1)}份）但毛利率仅${formatPercent(margin)}，低于平均水平${formatPercent(avgMargin - margin)}，${needsPriceIncrease ? `建议售价从${formatCurrency(dish.sellingPrice)}上调至${formatCurrency(priceSuggestion.suggestedPrice)}` : '需要检查食材采购成本或调整配方用量'}`
+    } else if (isLowSales && isHighMargin) {
+      category = 'hidden'
+      categoryLabel = '潜力菜品'
+      suggestion = '可做套餐搭配或促销推广'
+      detail = `毛利率${formatPercent(margin)}表现优秀，但销量偏低（日均${avgDailyPortions.toFixed(1)}份），可能是定价或知名度问题，可尝试与爆款搭配销售`
+    } else if (isLowSales && isLowMargin) {
+      category = 'niche'
+      categoryLabel = '待优化'
+      suggestion = '考虑下架或重新定位'
+      detail = `销量（日均${avgDailyPortions.toFixed(1)}份）和毛利率（${formatPercent(margin)}）双低，投入产出比不理想，建议评估是否继续保留`
+    } else if (needsPriceIncrease) {
+      category = 'problem'
+      categoryLabel = '需调价'
+      suggestion = '建议涨价'
+      detail = `当前毛利率${formatPercent(margin)}低于目标${formatPercent(dish.targetMargin)}，建议售价从${formatCurrency(dish.sellingPrice)}上调至${formatCurrency(priceSuggestion.suggestedPrice)}，涨价${formatCurrency(priceSuggestion.priceIncrease)}`
+    }
+
+    results.push({
+      dishId,
+      dishName: stats.name,
+      category,
+      categoryLabel,
+      totalPortions: stats.totalPortions,
+      totalRevenue: stats.totalRevenue,
+      totalProfit: stats.totalProfit,
+      margin,
+      avgDailyPortions: Math.round(avgDailyPortions * 10) / 10,
+      suggestion,
+      detail,
+    })
+  })
+
+  return results.sort((a, b) => {
+    const categoryOrder: Record<DishHealthCategory, number> = {
+      problem: 0,
+      star: 1,
+      hidden: 2,
+      niche: 3,
+      normal: 4,
+    }
+    return categoryOrder[a.category] - categoryOrder[b.category]
+  })
+}
+

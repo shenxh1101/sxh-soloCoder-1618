@@ -93,4 +93,36 @@ export interface RestockSuggestion {
   suggestedPurchase: number
   priority: 'high' | 'medium' | 'low'
   affectedHighSalesDishes: string[]
+  estimatedCost: number
+  consumingDishes: { dishName: string; dailyUsage: number; portions: number }[]
+}
+
+export type DishHealthCategory = 'star' | 'problem' | 'niche' | 'hidden' | 'normal'
+
+export interface DishHealthAnalysis {
+  dishId: string
+  dishName: string
+  category: DishHealthCategory
+  categoryLabel: string
+  totalPortions: number
+  totalRevenue: number
+  totalProfit: number
+  margin: number
+  avgDailyPortions: number
+  suggestion: string
+  detail: string
+}
+
+export interface PurchasePriorityItem {
+  ingredientId: string
+  ingredientName: string
+  unit: string
+  currentStock: number
+  daysRemaining: number
+  suggestedPurchase: number
+  estimatedCost: number
+  priority: 'high' | 'medium' | 'low'
+  affectsHotDishes: boolean
+  affectedHighSalesDishes: string[]
+  consumingDishes: { dishName: string; dailyUsage: number; portions: number }[]
 }

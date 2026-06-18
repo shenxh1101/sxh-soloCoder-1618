@@ -1,14 +1,14 @@
 import { useState, useMemo, useEffect } from 'react'
-import { BarChart3, TrendingUp, Calendar, ShoppingBag, Download, FileText, PieChart, ChevronRight, AlertCircle, ChefHat } from 'lucide-react'
+import { BarChart3, TrendingUp, Calendar, ShoppingBag, Download, FileText, PieChart, ChevronRight, AlertCircle, ChefHat, Heart, AlertTriangle, Star, TrendingDown, Zap } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Area, AreaChart, PieChart as RePieChart, Pie, Cell, Legend
 } from 'recharts'
 import useStore from '@/store/useStore'
-import { formatCurrency, formatPercent, calculateCategoryStats, type CategoryStats } from '@/utils/calculations'
+import { formatCurrency, formatPercent, calculateCategoryStats, calculateDishHealth, type CategoryStats } from '@/utils/calculations'
 import { format, startOfWeek, startOfMonth, endOfWeek, endOfMonth, eachDayOfInterval, subDays } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
-import type { DishCategory } from '@/types'
+import type { DishCategory, DishHealthCategory, DishHealthAnalysis } from '@/types'
 
 type TabType = 'week' | 'month' | 'custom'
 
@@ -17,6 +17,50 @@ const CATEGORY_COLORS: Record<DishCategory, string> = {
   '盖饭': '#2ECC71',
   '面条': '#3498DB',
   '汤': '#9B59B6',
+}
+
+const HEALTH_CATEGORY_CONFIG: Record<DishHealthCategory, {
+  label: string
+  icon: any
+  color: string
+  bgColor: string
+  borderColor: string
+}> = {
+  star: {
+    label: '明星菜品',
+    icon: Star,
+    color: 'text-profit',
+    bgColor: 'bg-profit/10',
+    borderColor: 'border-profit/30',
+  },
+  problem: {
+    label: '问题菜品',
+    icon: AlertTriangle,
+    color: 'text-loss',
+    bgColor: 'bg-loss/10',
+    borderColor: 'border-loss/30',
+  },
+  hidden: {
+    label: '潜力菜品',
+    icon: Zap,
+    color: 'text-blue-400',
+    bgColor: 'bg-blue-500/10',
+    borderColor: 'border-blue-500/30',
+  },
+  niche: {
+    label: '待优化',
+    icon: TrendingDown,
+    color: 'text-gray-400',
+    bgColor: 'bg-surface-700/50',
+    borderColor: 'border-surface-600',
+  },
+  normal: {
+    label: '表现正常',
+    icon: Heart,
+    color: 'text-gray-300',
+    bgColor: 'bg-surface-700/30',
+    borderColor: 'border-surface-600',
+  },
 }
 
 export default function Statistics() {
@@ -132,6 +176,37 @@ export default function Statistics() {
     [filteredSales, dailySales]
   )
 
+  const lookbackDays = useMemo(() => {
+    const days = eachDayOfInterval({ start: new Date(startDate), end: new Date(endDate) })
+    return Math.min(days.length, 30)
+  }, [startDate, endDate])
+
+  const dishHealth = useMemo(
+    () => calculateDishHealth(filteredSales, dishes, dishIngredients, ingredients, lookbackDays),
+    [filteredSales, dishes, dishIngredients, ingredients, lookbackDays]
+  )
+
+  const healthStats = useMemo(() => {
+    const counts: Record<DishHealthCategory, number> = {
+      star: 0,
+      problem: 0,
+      hidden: 0,
+      niche: 0,
+      normal: 0,
+    }
+    dishHealth.forEach((d) => {
+      counts[d.category]++
+    })
+    return counts
+  }, [dishHealth])
+
+  const [healthFilter, setHealthFilter] = useState<DishHealthCategory | 'all'>('all')
+
+  const filteredDishHealth = useMemo(() => {
+    if (healthFilter === 'all') return dishHealth
+    return dishHealth.filter((d) => d.category === healthFilter)
+  }, [dishHealth, healthFilter])
+
   const pieChartData = useMemo(() => {
     return categoryStats.map((c) => ({
       name: c.category,
@@ -177,6 +252,31 @@ export default function Statistics() {
     report += `采购支出：  ${formatCurrency(summary.totalPurchase)}\n`
     report += `净利润：    ${formatCurrency(summary.netProfit)}\n`
     report += `售出总份数：${summary.totalPortions}份\n\n`
+
+    report += `───────────── 菜品健康度 ─────────────\n\n`
+    report += `明星菜品（高销量高毛利）：${healthStats.star}道\n`
+    report += `问题菜品（高销量低毛利）：${healthStats.problem}道\n`
+    report += `潜力菜品（低销量高毛利）：${healthStats.hidden}道\n`
+    report += `待优化（低销量低毛利）：  ${healthStats.niche}道\n`
+    report += `表现正常：                ${healthStats.normal}道\n\n`
+
+    const problemDishes = dishHealth.filter((d) => d.category === 'problem')
+    if (problemDishes.length > 0) {
+      report += `⚠️  需要关注的菜品：\n`
+      problemDishes.forEach((d) => {
+        report += `  · ${d.dishName}：${d.suggestion}\n`
+        report += `    ${d.detail}\n\n`
+      })
+    }
+
+    const starDishes = dishHealth.filter((d) => d.category === 'star')
+    if (starDishes.length > 0) {
+      report += `🏆  重点推广菜品：\n`
+      starDishes.forEach((d) => {
+        report += `  · ${d.dishName}：${d.suggestion}\n`
+        report += `    ${d.detail}\n\n`
+      })
+    }
 
     report += `───────────── 分类汇总 ─────────────\n\n`
     report += `分类    营业额      占比     毛利       毛利率   销量   占比\n`
@@ -463,6 +563,107 @@ export default function Statistics() {
           {categoryStats.map(renderCategoryDishes)}
         </div>
       )}
+
+      {/* 菜品健康度复盘 */}
+      <div className="bg-surface-800 rounded-xl p-6 border border-surface-700">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-serif font-semibold text-white flex items-center gap-2">
+            <Heart size={18} className="text-brand-400" />
+            菜品健康度复盘
+          </h2>
+          <span className="text-xs text-gray-400">基于 {lookbackDays} 天数据分析 · 辅助月底决策</span>
+        </div>
+
+        {/* 健康度分类统计卡片 */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+          {(['star', 'problem', 'hidden', 'niche', 'normal'] as DishHealthCategory[]).map((cat) => {
+            const config = HEALTH_CATEGORY_CONFIG[cat]
+            const Icon = config.icon
+            const count = healthStats[cat]
+            return (
+              <button
+                key={cat}
+                onClick={() => setHealthFilter(healthFilter === cat ? 'all' : cat)}
+                className={`p-3 rounded-lg border-2 transition-all ${healthFilter === cat ? `${config.bgColor} ${config.borderColor}` : 'bg-surface-700/30 border-transparent hover:bg-surface-700/50'}`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon size={16} className={config.color} />
+                  <span className={`text-sm font-medium ${config.color}`}>{config.label}</span>
+                </div>
+                <div className="text-2xl font-serif font-semibold text-white">{count}</div>
+                <div className="text-xs text-gray-500">
+                  {cat === 'star' && '高销量·高毛利'}
+                  {cat === 'problem' && '高销量·低毛利'}
+                  {cat === 'hidden' && '低销量·高毛利'}
+                  {cat === 'niche' && '低销量·低毛利'}
+                  {cat === 'normal' && '表现正常'}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* 健康度明细列表 */}
+        <div className="space-y-3">
+          {filteredDishHealth.length > 0 ? (
+            filteredDishHealth.map((dish) => {
+              const config = HEALTH_CATEGORY_CONFIG[dish.category]
+              const Icon = config.icon
+              return (
+                <div
+                  key={dish.dishId}
+                  className={`${config.bgColor} ${config.borderColor} border rounded-xl p-4`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Icon size={16} className={config.color} />
+                        <h4 className="font-serif font-semibold text-white">{dish.dishName}</h4>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${config.bgColor} ${config.color} border ${config.borderColor}`}>
+                          {config.label}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-3 text-sm">
+                        <div>
+                          <div className="text-gray-500">总销量</div>
+                          <div className="text-white font-medium">{dish.totalPortions} 份</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">日均销量</div>
+                          <div className="text-white font-medium">{dish.avgDailyPortions.toFixed(1)} 份</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">营业额</div>
+                          <div className="text-white font-medium">{formatCurrency(dish.totalRevenue)}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">毛利率</div>
+                          <div className={`font-medium ${dish.margin >= 50 ? 'text-profit' : dish.margin >= 35 ? 'text-white' : 'text-loss'}`}>
+                            {formatPercent(dish.margin)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-surface-900/50 rounded-lg p-3">
+                        <div className="flex items-start gap-2">
+                          <div className="text-brand-400 font-medium text-sm">💡 建议：</div>
+                          <div className="text-gray-300 text-sm flex-1">
+                            <p className="mb-1">{dish.suggestion}</p>
+                            <p className="text-gray-500 text-xs">{dish.detail}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              {healthFilter === 'all' ? '暂无菜品数据' : `当前筛选条件下无${HEALTH_CATEGORY_CONFIG[healthFilter as DishHealthCategory].label}`}
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-surface-800 rounded-xl p-6 border border-surface-700">
