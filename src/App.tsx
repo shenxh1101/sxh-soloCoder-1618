@@ -4,6 +4,7 @@ import Dashboard from '@/pages/Dashboard'
 import Purchase from '@/pages/Purchase'
 import Recipes from '@/pages/Recipes'
 import DailySettlement from '@/pages/DailySettlement'
+import Inventory from '@/pages/Inventory'
 import Statistics from '@/pages/Statistics'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/purchase" element={<Purchase />} />
           <Route path="/recipes" element={<Recipes />} />
           <Route path="/daily" element={<DailySettlement />} />
+          <Route path="/inventory" element={<Inventory />} />
           <Route path="/stats" element={<Statistics />} />
         </Route>
       </Routes>

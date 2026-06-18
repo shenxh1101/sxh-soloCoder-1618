@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit3, Trash2, ChefHat, X, AlertTriangle, Check } from 'lucide-react'
+import { Plus, Edit3, Trash2, ChefHat, X, AlertTriangle, Check, ArrowUpRight } from 'lucide-react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import useStore from '@/store/useStore'
-import { calculateDishCost, formatCurrency, formatPercent, suggestPrice, generateId } from '@/utils/calculations'
+import { calculateDishCost, formatCurrency, formatPercent, suggestPrice } from '@/utils/calculations'
 import type { DishCategory, DishIngredient } from '@/types'
 
 const CATEGORIES: DishCategory[] = ['小炒', '盖饭', '面条', '汤']
@@ -16,7 +16,7 @@ const CATEGORY_COLORS: Record<DishCategory, string> = {
 const PIE_COLORS = ['#E8652E', '#2ECC71', '#3498DB', '#F39C12', '#9B59B6', '#1ABC9C', '#E74C3C', '#2C3E50']
 
 export default function Recipes() {
-  const { ingredients, dishes, dishIngredients, addDish, updateDish, deleteDish, setDishIngredients, addIngredient } = useStore()
+  const { ingredients, dishes, dishIngredients, addDish, updateDish, deleteDish, setDishIngredients } = useStore()
 
   const [showAddDish, setShowAddDish] = useState(false)
   const [editingDishId, setEditingDishId] = useState<string | null>(null)
@@ -112,10 +112,14 @@ export default function Recipes() {
         const recipeItems = dishIngredients.filter((di) => di.dishId === dish.id)
         return suggestPrice(dish, recipeItems, ingredients)
       })
-      .filter((s) => s.priceIncrease > 0.5 || s.currentMargin < s.targetMargin - 5)
+      .filter((s) => s.marginGap > 0)
   }
 
   const suggestions = getSuggestions()
+
+  const handleApplyPrice = (dishId: string, newPrice: number) => {
+    updateDish(dishId, { sellingPrice: newPrice })
+  }
 
   return (
     <div className="space-y-6">
@@ -135,22 +139,50 @@ export default function Recipes() {
 
       {suggestions.length > 0 && (
         <div className="bg-surface-800 rounded-xl p-5 border border-amber-500/30">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-4">
             <AlertTriangle size={18} className="text-amber-400" />
             <h2 className="text-base font-semibold text-amber-400">调价建议</h2>
+            <span className="text-xs text-gray-500 ml-auto">毛利率低于目标的菜品</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {suggestions.map((s) => (
-              <div key={s.dishId} className="bg-surface-700/50 rounded-lg p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-white font-medium text-sm">{s.dishName}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    当前成本 {formatCurrency(s.currentCost)} · 毛利率 {formatPercent(s.currentMargin)}
-                  </p>
+              <div key={s.dishId} className="bg-surface-700/50 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-white font-medium">{s.dishName}</p>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-loss/10 text-loss">
+                    差 {formatPercent(s.marginGap)}
+                  </span>
                 </div>
-                <div className="text-right">
-                  <p className="text-brand-400 font-bold">建议 ¥{s.suggestedPrice}</p>
-                  <p className="text-xs text-loss">需涨价 {formatCurrency(s.priceIncrease)}</p>
+                <div className="grid grid-cols-3 gap-2 mb-3 text-center">
+                  <div className="bg-surface-800/50 rounded p-2">
+                    <p className="text-[10px] text-gray-500">当前成本</p>
+                    <p className="text-sm font-bold text-white">{formatCurrency(s.currentCost)}</p>
+                  </div>
+                  <div className="bg-surface-800/50 rounded p-2">
+                    <p className="text-[10px] text-gray-500">当前毛利率</p>
+                    <p className="text-sm font-bold text-loss">{formatPercent(s.currentMargin)}</p>
+                  </div>
+                  <div className="bg-surface-800/50 rounded p-2">
+                    <p className="text-[10px] text-gray-500">目标毛利率</p>
+                    <p className="text-sm font-bold text-profit">{formatPercent(s.targetMargin)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between bg-brand-500/10 rounded-lg p-3 border border-brand-500/20">
+                  <div>
+                    <p className="text-xs text-gray-400">建议售价</p>
+                    <p className="text-lg font-bold text-brand-400">{formatCurrency(s.suggestedPrice)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-400">需涨价</p>
+                    <p className="text-sm font-bold text-loss">+{formatCurrency(s.priceIncrease)}</p>
+                  </div>
+                  <button
+                    onClick={() => handleApplyPrice(s.dishId, s.suggestedPrice)}
+                    className="ml-3 flex items-center gap-1 px-3 py-1.5 bg-brand-500 hover:bg-brand-600 text-white rounded-lg text-xs font-medium transition-all"
+                  >
+                    <Check size={14} />
+                    采纳
+                  </button>
                 </div>
               </div>
             ))}
@@ -242,6 +274,7 @@ export default function Recipes() {
             const breakdown = getDishCostBreakdown(dish.id)
             const recipeItems = dishIngredients.filter((di) => di.dishId === dish.id)
             const isEditing = editingDishId === dish.id
+            const marginStatus = margin >= dish.targetMargin ? 'ok' : margin >= dish.targetMargin - 10 ? 'warning' : 'danger'
 
             return (
               <motion.div
@@ -286,11 +319,20 @@ export default function Recipes() {
                     </div>
                     <div className="bg-surface-700/50 rounded-lg p-2.5 text-center">
                       <p className="text-xs text-gray-500">毛利率</p>
-                      <p className={`text-sm font-bold mt-0.5 ${margin >= dish.targetMargin ? 'text-profit' : 'text-loss'}`}>
+                      <p className={`text-sm font-bold mt-0.5 ${marginStatus === 'ok' ? 'text-profit' : marginStatus === 'warning' ? 'text-amber-400' : 'text-loss'}`}>
                         {formatPercent(margin)}
                       </p>
                     </div>
                   </div>
+
+                  {marginStatus !== 'ok' && !isEditing && (
+                    <div className={`mb-4 rounded-lg p-2.5 text-xs flex items-center gap-2 ${marginStatus === 'danger' ? 'bg-loss/10 border border-loss/20' : 'bg-amber-500/10 border border-amber-500/20'}`}>
+                      <AlertTriangle size={14} className={marginStatus === 'danger' ? 'text-loss' : 'text-amber-400'} />
+                      <span className={marginStatus === 'danger' ? 'text-loss' : 'text-amber-400'}>
+                        低于目标 {formatPercent(dish.targetMargin - margin)}
+                      </span>
+                    </div>
+                  )}
 
                   {breakdown.length > 0 && !isEditing && (
                     <div className="flex items-center gap-3">
@@ -310,7 +352,7 @@ export default function Recipes() {
                         </ResponsiveContainer>
                       </div>
                       <div className="flex-1 space-y-1">
-                        {recipeItems.map((ri, i) => {
+                        {recipeItems.map((ri) => {
                           const ing = ingredients.find((i) => i.id === ri.ingredientId)
                           const itemCost = ri.quantity * (ing?.currentPrice || 0)
                           return (

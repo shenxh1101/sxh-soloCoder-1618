@@ -10,7 +10,7 @@ interface StoreState {
   dishIngredients: DishIngredient[]
   dailySales: DailySales[]
 
-  addIngredient: (ingredient: Omit<Ingredient, 'id' | 'previousPrice'>) => void
+  addIngredient: (ingredient: Omit<Ingredient, 'id' | 'previousPrice'>) => string
   updateIngredientPrice: (id: string, newPrice: number) => void
   deleteIngredient: (id: string) => void
 
@@ -46,13 +46,16 @@ const useStore = create<StoreState>()(
       dishIngredients: [],
       dailySales: [],
 
-      addIngredient: (ingredient) =>
+      addIngredient: (ingredient) => {
+        const id = generateId()
         set((state) => ({
           ingredients: [
             ...state.ingredients,
-            { ...ingredient, id: generateId(), previousPrice: undefined },
+            { ...ingredient, id, previousPrice: undefined },
           ],
-        })),
+        }))
+        return id
+      },
 
       updateIngredientPrice: (id, newPrice) =>
         set((state) => ({

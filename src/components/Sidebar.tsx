@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, ShoppingCart, ChefHat, Calculator, BarChart3, Menu, X } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, ChefHat, Calculator, Package, BarChart3, Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
@@ -8,6 +8,7 @@ const navItems = [
   { path: '/purchase', label: '采购管理', icon: ShoppingCart },
   { path: '/recipes', label: '菜品配方', icon: ChefHat },
   { path: '/daily', label: '日终结算', icon: Calculator },
+  { path: '/inventory', label: '食材库存', icon: Package },
   { path: '/stats', label: '统计分析', icon: BarChart3 },
 ]
 

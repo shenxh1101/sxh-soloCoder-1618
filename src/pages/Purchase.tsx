@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Trash2, ShoppingCart, TrendingUp, TrendingDown, Calendar, Search } from 'lucide-react'
 import useStore from '@/store/useStore'
-import { formatCurrency, generateId } from '@/utils/calculations'
+import { formatCurrency } from '@/utils/calculations'
 import { format } from 'date-fns'
 import type { DishCategory } from '@/types'
 
@@ -85,31 +85,40 @@ export default function Purchase() {
     const validItems = items.filter((i) => i.ingredientName && i.quantity > 0 && i.unitPrice > 0)
     if (validItems.length === 0) return
 
-    const records = validItems.map((item) => {
-      let ingredientId = item.ingredientId
-
+    const newIngredientIds: Record<string, string> = {}
+    validItems.forEach((item) => {
       if (item.isNewIngredient) {
-        const id = generateId()
-        addIngredient({
+        const newId = addIngredient({
           name: item.ingredientName,
           unit: item.newUnit,
           currentPrice: item.unitPrice,
           lastPriceDate: date,
         })
-        ingredientId = id
+        newIngredientIds[item.ingredientName] = newId
       } else {
         const existingIng = ingredients.find((i) => i.id === item.ingredientId)
         if (existingIng && item.unitPrice !== existingIng.currentPrice) {
           updateIngredientPrice(item.ingredientId, item.unitPrice)
         }
       }
+    })
+
+    const updatedIngredients = useStore.getState().ingredients
+
+    const records = validItems.map((item) => {
+      let ingredientId = item.ingredientId
+      if (item.isNewIngredient) {
+        ingredientId = newIngredientIds[item.ingredientName] || ''
+      }
+
+      const matchedIng = updatedIngredients.find((i) => i.id === ingredientId)
 
       return {
         date,
-        ingredientId: ingredientId || item.ingredientId,
+        ingredientId,
         ingredientName: item.ingredientName,
         quantity: item.quantity,
-        unit: item.unit || item.newUnit,
+        unit: matchedIng?.unit || item.unit || item.newUnit,
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
       }

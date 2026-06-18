@@ -69,4 +69,16 @@ export interface PriceSuggestion {
   targetMargin: number
   priceIncrease: number
   currentMargin: number
+  marginGap: number
+}
+
+export interface IngredientStock {
+  ingredientId: string
+  ingredientName: string
+  unit: string
+  stock: number
+  totalPurchased: number
+  totalConsumed: number
+  lowThreshold: number
+  affectedDishes: string[]
 }

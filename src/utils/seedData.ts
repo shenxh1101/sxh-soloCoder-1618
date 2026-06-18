@@ -11,8 +11,8 @@ export function seedDemoData() {
   const dayBefore = format(subDays(new Date(), 2), 'yyyy-MM-dd')
 
   const ingredientsData = [
-    { name: '猪肉', unit: '斤', currentPrice: 18, lastPriceDate: today },
-    { name: '鸡肉', unit: '斤', currentPrice: 13, lastPriceDate: yesterday },
+    { name: '猪肉', unit: '斤', currentPrice: 22, lastPriceDate: today },
+    { name: '鸡肉', unit: '斤', currentPrice: 15, lastPriceDate: today },
     { name: '鸡蛋', unit: '斤', currentPrice: 6, lastPriceDate: dayBefore },
     { name: '豆腐', unit: '块', currentPrice: 2, lastPriceDate: today },
     { name: '白菜', unit: '斤', currentPrice: 2.5, lastPriceDate: yesterday },
@@ -26,8 +26,8 @@ export function seedDemoData() {
     { name: '葱', unit: '斤', currentPrice: 5, lastPriceDate: today },
     { name: '姜', unit: '斤', currentPrice: 8, lastPriceDate: dayBefore },
     { name: '蒜', unit: '斤', currentPrice: 7, lastPriceDate: dayBefore },
-    { name: '排骨', unit: '斤', currentPrice: 28, lastPriceDate: yesterday },
-    { name: '牛肉', unit: '斤', currentPrice: 38, lastPriceDate: today },
+    { name: '排骨', unit: '斤', currentPrice: 32, lastPriceDate: today },
+    { name: '牛肉', unit: '斤', currentPrice: 42, lastPriceDate: today },
     { name: '青椒', unit: '斤', currentPrice: 5, lastPriceDate: dayBefore },
   ]
 
@@ -170,10 +170,10 @@ export function seedDemoData() {
   store.addDailySalesBatch(allSales)
 
   const purchaseItems = [
-    { ingredientName: '猪肉', quantity: 5, unit: '斤', unitPrice: 18 },
-    { ingredientName: '鸡肉', quantity: 4, unit: '斤', unitPrice: 13 },
-    { ingredientName: '牛肉', quantity: 3, unit: '斤', unitPrice: 38 },
-    { ingredientName: '排骨', quantity: 3, unit: '斤', unitPrice: 28 },
+    { ingredientName: '猪肉', quantity: 5, unit: '斤', unitPrice: 22 },
+    { ingredientName: '鸡肉', quantity: 4, unit: '斤', unitPrice: 15 },
+    { ingredientName: '牛肉', quantity: 3, unit: '斤', unitPrice: 42 },
+    { ingredientName: '排骨', quantity: 3, unit: '斤', unitPrice: 32 },
     { ingredientName: '鸡蛋', quantity: 5, unit: '斤', unitPrice: 6 },
     { ingredientName: '西红柿', quantity: 3, unit: '斤', unitPrice: 4 },
     { ingredientName: '白菜', quantity: 4, unit: '斤', unitPrice: 2.5 },
