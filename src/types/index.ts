@@ -82,3 +82,15 @@ export interface IngredientStock {
   lowThreshold: number
   affectedDishes: string[]
 }
+
+export interface RestockSuggestion {
+  ingredientId: string
+  ingredientName: string
+  unit: string
+  currentStock: number
+  dailyConsumption: number
+  daysRemaining: number
+  suggestedPurchase: number
+  priority: 'high' | 'medium' | 'low'
+  affectedHighSalesDishes: string[]
+}

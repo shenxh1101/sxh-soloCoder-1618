@@ -1,15 +1,23 @@
-import { useState, useMemo } from 'react'
-import { BarChart3, TrendingUp, Calendar, ShoppingBag, Download, FileText } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { BarChart3, TrendingUp, Calendar, ShoppingBag, Download, FileText, PieChart, ChevronRight, AlertCircle, ChefHat } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Area, AreaChart
+  ResponsiveContainer, Area, AreaChart, PieChart as RePieChart, Pie, Cell, Legend
 } from 'recharts'
 import useStore from '@/store/useStore'
-import { formatCurrency, formatPercent } from '@/utils/calculations'
+import { formatCurrency, formatPercent, calculateCategoryStats, type CategoryStats } from '@/utils/calculations'
 import { format, startOfWeek, startOfMonth, endOfWeek, endOfMonth, eachDayOfInterval, subDays } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
+import type { DishCategory } from '@/types'
 
 type TabType = 'week' | 'month' | 'custom'
+
+const CATEGORY_COLORS: Record<DishCategory, string> = {
+  '小炒': '#E8652E',
+  '盖饭': '#2ECC71',
+  '面条': '#3498DB',
+  '汤': '#9B59B6',
+}
 
 export default function Statistics() {
   const { dailySales, purchaseRecords, ingredients, dishes, dishIngredients } = useStore()
@@ -17,6 +25,8 @@ export default function Statistics() {
   const [tab, setTab] = useState<TabType>('week')
   const [customStart, setCustomStart] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'))
   const [customEnd, setCustomEnd] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [selectedCategory, setSelectedCategory] = useState<DishCategory | null>(null)
+  const [dateWarning, setDateWarning] = useState<string | null>(null)
 
   const now = new Date()
 
@@ -30,13 +40,30 @@ export default function Statistics() {
       startDate = format(startOfMonth(now), 'yyyy-MM-dd')
       endDate = format(endOfMonth(now), 'yyyy-MM-dd')
     } else {
-      startDate = customStart
-      endDate = customEnd
+      if (customStart > customEnd) {
+        startDate = customEnd
+        endDate = customStart
+      } else {
+        startDate = customStart
+        endDate = customEnd
+      }
     }
     return { startDate, endDate }
   }, [tab, customStart, customEnd])
 
   const { startDate, endDate } = getDateRange
+
+  useEffect(() => {
+    if (tab === 'custom' && customStart && customEnd) {
+      if (customStart > customEnd) {
+        setDateWarning(`日期范围已自动纠正：${customEnd} 至 ${customStart}`)
+      } else {
+        setDateWarning(null)
+      }
+    } else {
+      setDateWarning(null)
+    }
+  }, [customStart, customEnd, tab])
 
   const filteredSales = useMemo(
     () => dailySales.filter((s) => s.date >= startDate && s.date <= endDate),
@@ -53,7 +80,7 @@ export default function Statistics() {
     const totalCost = filteredSales.reduce((s, r) => s + r.totalCost, 0)
     const totalProfit = filteredSales.reduce((s, r) => s + r.grossProfit, 0)
     const totalPurchase = filteredPurchases.reduce((s, r) => s + r.totalPrice, 0)
-    const netProfit = totalProfit - 0
+    const netProfit = totalProfit - totalPurchase
     const overallMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
     const totalPortions = filteredSales.reduce((s, r) => s + r.portionsSold, 0)
     return { totalRevenue, totalCost, totalProfit, totalPurchase, netProfit, overallMargin, totalPortions }
@@ -76,7 +103,7 @@ export default function Statistics() {
         profit,
         purchaseTotal,
         margin,
-        netProfit: profit,
+        netProfit: profit - purchaseTotal,
       }
     })
   }, [filteredSales, filteredPurchases, startDate, endDate])
@@ -100,6 +127,19 @@ export default function Statistics() {
       .sort((a, b) => b.totalProfit - a.totalProfit)
   }, [filteredSales])
 
+  const categoryStats = useMemo(
+    () => calculateCategoryStats(filteredSales, dailySales),
+    [filteredSales, dailySales]
+  )
+
+  const pieChartData = useMemo(() => {
+    return categoryStats.map((c) => ({
+      name: c.category,
+      value: c.totalRevenue,
+      color: CATEGORY_COLORS[c.category],
+    }))
+  }, [categoryStats])
+
   const ingredientPriceTrend = useMemo(() => {
     const last7 = Array.from({ length: 7 }, (_, i) => format(subDays(now, 6 - i), 'yyyy-MM-dd'))
     return ingredients.map((ing) => {
@@ -110,6 +150,14 @@ export default function Statistics() {
     }).filter((i) => i.records.length > 0)
   }, [ingredients, purchaseRecords])
 
+  const handleCustomStartChange = (value: string) => {
+    setCustomStart(value)
+  }
+
+  const handleCustomEndChange = (value: string) => {
+    setCustomEnd(value)
+  }
+
   const handleExportReport = () => {
     const period = tab === 'week' ? '周报' : tab === 'month' ? '月报' : `${startDate}~${endDate}`
     const bestDish = dishRanking[0]
@@ -119,6 +167,7 @@ export default function Statistics() {
     report += `         味道管家 · 经营报表\n`
     report += `═══════════════════════════════════════\n\n`
     report += `报表类型：${period}\n`
+    report += `日期范围：${startDate} 至 ${endDate}\n`
     report += `生成时间：${format(new Date(), 'yyyy-MM-dd HH:mm')}\n\n`
     report += `───────────── 经营总览 ─────────────\n\n`
     report += `总营业额：  ${formatCurrency(summary.totalRevenue)}\n`
@@ -129,17 +178,33 @@ export default function Statistics() {
     report += `净利润：    ${formatCurrency(summary.netProfit)}\n`
     report += `售出总份数：${summary.totalPortions}份\n\n`
 
+    report += `───────────── 分类汇总 ─────────────\n\n`
+    report += `分类    营业额      占比     毛利       毛利率   销量   占比\n`
+    report += `──────────────────────────────────────\n`
+    categoryStats.forEach((cat) => {
+      const name = cat.category.padEnd(4, '　')
+      const rev = formatCurrency(cat.totalRevenue).padStart(8, ' ')
+      const revShare = formatPercent(cat.revenueShare).padStart(6, ' ')
+      const profit = formatCurrency(cat.totalProfit).padStart(8, ' ')
+      const margin = formatPercent(cat.margin).padStart(6, ' ')
+      const portions = String(cat.totalPortions).padStart(4, ' ')
+      const portShare = formatPercent(cat.portionsShare).padStart(6, ' ')
+      report += `${name}  ${rev}  ${revShare}  ${profit}  ${margin}  ${portions}份  ${portShare}\n`
+    })
+    report += `\n`
+
     report += `───────────── 菜品排行 ─────────────\n\n`
-    report += `排名  菜品          销量   营业额      毛利       毛利率\n`
+    report += `排名  菜品          分类   销量   营业额      毛利       毛利率\n`
     report += `──────────────────────────────────────\n`
     dishRanking.forEach((dish, i) => {
       const rank = String(i + 1).padStart(2, ' ')
       const name = dish.name.padEnd(8, '　')
+      const cat = dish.category.padEnd(4, '　')
       const portions = String(dish.totalPortions).padStart(3, ' ')
       const revenue = formatCurrency(dish.totalRevenue).padStart(8, ' ')
       const profit = formatCurrency(dish.totalProfit).padStart(8, ' ')
       const margin = formatPercent(dish.margin).padStart(6, ' ')
-      report += `${rank}  ${name}  ${portions}份  ${revenue}  ${profit}  ${margin}\n`
+      report += `${rank}  ${name}  ${cat}  ${portions}份  ${revenue}  ${profit}  ${margin}\n`
     })
 
     if (bestDish) {
@@ -150,15 +215,16 @@ export default function Statistics() {
     }
 
     report += `\n───────────── 每日明细 ─────────────\n\n`
-    report += `日期        营业额      采购支出    毛利       毛利率\n`
+    report += `日期        营业额      采购支出    毛利       净利润     毛利率\n`
     report += `──────────────────────────────────────\n`
     dailyData.filter(d => d.revenue > 0 || d.purchaseTotal > 0).forEach(d => {
       const date = d.fullDate.padEnd(10, ' ')
       const rev = formatCurrency(d.revenue).padStart(8, ' ')
       const purch = formatCurrency(d.purchaseTotal).padStart(8, ' ')
       const prof = formatCurrency(d.profit).padStart(8, ' ')
+      const netProf = formatCurrency(d.netProfit).padStart(8, ' ')
       const marg = formatPercent(d.margin).padStart(6, ' ')
-      report += `${date}  ${rev}  ${purch}  ${prof}  ${marg}\n`
+      report += `${date}  ${rev}  ${purch}  ${prof}  ${netProf}  ${marg}\n`
     })
 
     report += `\n═══════════════════════════════════════\n`
@@ -174,6 +240,77 @@ export default function Statistics() {
     URL.revokeObjectURL(url)
   }
 
+  const renderCategoryCard = (cat: CategoryStats) => {
+    const isSelected = selectedCategory === cat.category
+    return (
+      <div
+        key={cat.category}
+        onClick={() => setSelectedCategory(isSelected ? null : cat.category)}
+        className={`bg-surface-700/40 rounded-xl p-5 border cursor-pointer transition-all hover:bg-surface-700/60 ${
+          isSelected ? 'border-brand-500' : 'border-surface-600'
+        }`}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat.category] }} />
+            <span className="text-sm font-semibold text-white">{cat.category}</span>
+          </div>
+          <ChevronRight size={16} className={`text-gray-400 transition-transform ${isSelected ? 'rotate-90' : ''}`} />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <p className="text-xs text-gray-500">营业额</p>
+            <p className="text-base font-bold text-white">{formatCurrency(cat.totalRevenue)}</p>
+            <p className="text-xs text-gray-500 mt-0.5">占比 {formatPercent(cat.revenueShare)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">毛利</p>
+            <p className="text-base font-bold text-profit">{formatCurrency(cat.totalProfit)}</p>
+            <p className="text-xs text-gray-500 mt-0.5">毛利率 {formatPercent(cat.margin)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">销量</p>
+            <p className="text-base font-bold text-white">{cat.totalPortions}份</p>
+            <p className="text-xs text-gray-500 mt-0.5">占比 {formatPercent(cat.portionsShare)}</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const renderCategoryDishes = (cat: CategoryStats) => {
+    if (selectedCategory !== cat.category) return null
+    return (
+      <div className="bg-surface-700/20 rounded-lg mt-2 p-3 space-y-2">
+        <div className="flex items-center justify-between px-3 py-2 text-xs text-gray-400 border-b border-surface-600/50">
+          <span>菜品</span>
+          <div className="flex gap-6">
+            <span className="w-16 text-right">销量</span>
+            <span className="w-20 text-right">营业额</span>
+            <span className="w-20 text-right">毛利</span>
+            <span className="w-16 text-right">毛利率</span>
+          </div>
+        </div>
+        {cat.dishes.map((dish) => (
+          <div key={dish.id} className="flex items-center justify-between px-3 py-2 hover:bg-surface-700/40 rounded-lg">
+            <div className="flex items-center gap-2">
+              <ChefHat size={14} className="text-gray-500" />
+              <span className="text-sm text-white">{dish.name}</span>
+            </div>
+            <div className="flex gap-6 text-sm">
+              <span className="w-16 text-right text-gray-300">{dish.totalPortions}份</span>
+              <span className="w-20 text-right text-gray-300">{formatCurrency(dish.totalRevenue)}</span>
+              <span className="w-20 text-right text-profit">{formatCurrency(dish.totalProfit)}</span>
+              <span className={`w-16 text-right font-medium ${dish.margin >= 50 ? 'text-profit' : 'text-loss'}`}>
+                {formatPercent(dish.margin)}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -186,7 +323,7 @@ export default function Statistics() {
             {([['week', '周报'], ['month', '月报'], ['custom', '自定义']] as const).map(([key, label]) => (
               <button
                 key={key}
-                onClick={() => setTab(key)}
+                onClick={() => { setTab(key); setSelectedCategory(null) }}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${tab === key ? 'bg-brand-500 text-white' : 'text-gray-400 hover:text-white'}`}
               >
                 {label}
@@ -204,22 +341,31 @@ export default function Statistics() {
       </div>
 
       {tab === 'custom' && (
-        <div className="bg-surface-800 rounded-xl p-4 border border-surface-700 flex items-center gap-4 flex-wrap">
-          <Calendar size={16} className="text-gray-400" />
-          <span className="text-sm text-gray-400">日期范围：</span>
-          <input
-            type="date"
-            value={customStart}
-            onChange={(e) => setCustomStart(e.target.value)}
-            className="bg-surface-700 text-white px-3 py-1.5 rounded-lg border border-surface-600 text-sm focus:outline-none focus:border-brand-500"
-          />
-          <span className="text-gray-500">至</span>
-          <input
-            type="date"
-            value={customEnd}
-            onChange={(e) => setCustomEnd(e.target.value)}
-            className="bg-surface-700 text-white px-3 py-1.5 rounded-lg border border-surface-600 text-sm focus:outline-none focus:border-brand-500"
-          />
+        <div className="bg-surface-800 rounded-xl p-4 border border-surface-700">
+          <div className="flex items-center gap-4 flex-wrap">
+            <Calendar size={16} className="text-gray-400" />
+            <span className="text-sm text-gray-400">日期范围：</span>
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => handleCustomStartChange(e.target.value)}
+              className="bg-surface-700 text-white px-3 py-1.5 rounded-lg border border-surface-600 text-sm focus:outline-none focus:border-brand-500"
+            />
+            <span className="text-gray-500">至</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => handleCustomEndChange(e.target.value)}
+              className="bg-surface-700 text-white px-3 py-1.5 rounded-lg border border-surface-600 text-sm focus:outline-none focus:border-brand-500"
+            />
+          </div>
+          {dateWarning && (
+            <div className="flex items-center gap-2 mt-3 text-amber-400 bg-amber-400/10 rounded-lg px-3 py-2">
+              <AlertCircle size={14} />
+              <span className="text-xs">{dateWarning}</span>
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mt-2">当前查询：{startDate} 至 {endDate}</p>
         </div>
       )}
 
@@ -258,6 +404,7 @@ export default function Statistics() {
             <FileText size={16} className={summary.netProfit >= 0 ? 'text-profit' : 'text-loss'} />
           </div>
           <p className={`text-2xl font-bold ${summary.netProfit >= 0 ? 'text-profit' : 'text-loss'}`}>{formatCurrency(summary.netProfit)}</p>
+          <p className="text-xs text-gray-500 mt-1">= 毛利 - 采购支出</p>
         </div>
         <div className="bg-surface-800 rounded-xl p-5 border border-surface-700">
           <div className="flex items-center justify-between mb-2">
@@ -267,6 +414,55 @@ export default function Statistics() {
           <p className="text-2xl font-bold text-white">{summary.totalPortions}</p>
         </div>
       </div>
+
+      {categoryStats.length > 0 && (
+        <div className="bg-surface-800 rounded-xl p-6 border border-surface-700">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-serif font-semibold text-white">分类经营分析</h2>
+            <span className="text-xs text-gray-400">点击分类卡片查看明细</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            <div className="space-y-3">
+              {categoryStats.map(renderCategoryCard)}
+            </div>
+            <div className="bg-surface-700/30 rounded-xl p-4 border border-surface-600">
+              <h3 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                <PieChart size={14} className="text-brand-400" />
+                营业额分布
+              </h3>
+              {pieChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <RePieChart>
+                    <Pie
+                      data={pieChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={85}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {pieChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#262637', border: '1px solid #3A3A50', borderRadius: '8px', color: '#fff' }}
+                      formatter={(value: number) => [formatCurrency(value), '营业额']}
+                    />
+                    <Legend
+                      formatter={(value) => <span className="text-gray-300 text-sm">{value}</span>}
+                    />
+                  </RePieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[240px] flex items-center justify-center text-gray-500 text-sm">暂无数据</div>
+              )}
+            </div>
+          </div>
+          {categoryStats.map(renderCategoryDishes)}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-surface-800 rounded-xl p-6 border border-surface-700">
@@ -305,7 +501,7 @@ export default function Statistics() {
                 <YAxis stroke="#666" tick={{ fill: '#999', fontSize: 11 }} />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#262637', border: '1px solid #3A3A50', borderRadius: '8px', color: '#fff' }}
-                  formatter={(value: number, name: string) => [formatCurrency(value), name === 'revenue' ? '营业额' : '采购支出']}
+                  formatter={(value: number, name: string) => [formatCurrency(value), name === 'revenue' ? '营业额' : name === 'purchaseTotal' ? '采购支出' : '净利润']}
                 />
                 <Bar dataKey="revenue" name="revenue" fill="#2ECC71" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="purchaseTotal" name="purchaseTotal" fill="#E8652E" radius={[3, 3, 0, 0]} />
