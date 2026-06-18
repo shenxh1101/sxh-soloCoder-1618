@@ -212,15 +212,24 @@ export function calculateRestockSuggestions(
   const stocks = calculateIngredientStocks(ingredients, purchaseRecords, dailySales, dishIngredients, dishes)
 
   const effectiveEndDate = endDate || format(new Date(), 'yyyy-MM-dd')
-  const uniqueDates = Array.from(new Set(dailySales.map((s) => s.date))).sort()
-  const cutoffDate = uniqueDates.find((d) => d <= effectiveEndDate) || effectiveEndDate
-  const allValidDates = uniqueDates.filter((d) => d <= cutoffDate)
-  const recentDates = allValidDates.slice(-lookbackDays)
-  const daysInWindow = recentDates.length
+  const end = new Date(effectiveEndDate)
+  end.setHours(23, 59, 59, 999)
+  const start = new Date(end)
+  start.setDate(start.getDate() - lookbackDays + 1)
+  start.setHours(0, 0, 0, 0)
+
+  const naturalDaysInWindow = lookbackDays
+
+  const recentDateSet = new Set<string>()
+  for (let i = 0; i < lookbackDays; i++) {
+    const d = new Date(end)
+    d.setDate(d.getDate() - i)
+    recentDateSet.add(format(d, 'yyyy-MM-dd'))
+  }
 
   const dishPortionsInWindow = new Map<string, number>()
   dailySales
-    .filter((s) => recentDates.includes(s.date))
+    .filter((s) => recentDateSet.has(s.date))
     .forEach((s) => {
       dishPortionsInWindow.set(s.dishId, (dishPortionsInWindow.get(s.dishId) || 0) + s.portionsSold)
     })
@@ -235,7 +244,7 @@ export function calculateRestockSuggestions(
 
   const dishAvgDailyPortions = new Map<string, number>()
   dishPortionsInWindow.forEach((portions, dishId) => {
-    dishAvgDailyPortions.set(dishId, daysInWindow > 0 ? portions / daysInWindow : 0)
+    dishAvgDailyPortions.set(dishId, portions / naturalDaysInWindow)
   })
 
   const ingredientDailyConsumption = new Map<string, number>()

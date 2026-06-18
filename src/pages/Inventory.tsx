@@ -37,34 +37,48 @@ export default function Inventory() {
     [ingredients, purchaseRecords, dailySales, dishIngredients, dishes, lookbackDays]
   )
 
+  const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
   const sortedRestockSuggestions = useMemo(() => {
-    const priorityOrder = { high: 0, medium: 1, low: 2 }
     return [...restockSuggestions]
       .filter((s) => s.priority !== 'low' || s.suggestedPurchase > 0)
       .sort((a, b) => {
-        if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-          return priorityOrder[a.priority] - priorityOrder[b.priority]
-        }
-        return a.daysRemaining - b.daysRemaining
+        const pa = priorityOrder[a.priority] ?? 99
+        const pb = priorityOrder[b.priority] ?? 99
+        if (pa !== pb) return pa - pb
+        const da = Number.isFinite(a.daysRemaining) ? a.daysRemaining : 9999
+        const db = Number.isFinite(b.daysRemaining) ? b.daysRemaining : 9999
+        return da - db
       })
-  }, [restockSuggestions])
+  }, [restockSuggestions, priorityOrder])
 
   const purchasePriorityList = useMemo(() => {
-    return sortedRestockSuggestions
-      .filter((s) => s.suggestedPurchase > 0)
-      .map((s) => ({
-        ...s,
-        affectsHotDishes: s.affectedHighSalesDishes.length > 0,
-      }))
-      .sort((a, b) => {
-        if (a.priority !== b.priority) return priorityOrder[a.priority] - priorityOrder[b.priority]
-        if (a.affectsHotDishes !== b.affectsHotDishes) return a.affectsHotDishes ? -1 : 1
-        return b.estimatedCost - a.estimatedCost
-      })
-  }, [sortedRestockSuggestions])
+    try {
+      return sortedRestockSuggestions
+        .filter((s) => s.suggestedPurchase > 0)
+        .map((s) => ({
+          ...s,
+          affectsHotDishes: Array.isArray(s.affectedHighSalesDishes) && s.affectedHighSalesDishes.length > 0,
+        }))
+        .sort((a, b) => {
+          const pa = priorityOrder[a.priority] ?? 99
+          const pb = priorityOrder[b.priority] ?? 99
+          if (pa !== pb) return pa - pb
+          if (a.affectsHotDishes !== b.affectsHotDishes) return a.affectsHotDishes ? -1 : 1
+          const ea = Number.isFinite(a.estimatedCost) ? a.estimatedCost : 0
+          const eb = Number.isFinite(b.estimatedCost) ? b.estimatedCost : 0
+          return eb - ea
+        })
+    } catch (e) {
+      console.error('Purchase priority sort error:', e)
+      return []
+    }
+  }, [sortedRestockSuggestions, priorityOrder])
 
   const totalEstimatedCost = useMemo(
-    () => purchasePriorityList.reduce((sum, s) => sum + s.estimatedCost, 0),
+    () => purchasePriorityList.reduce((sum, s) => {
+      const cost = Number.isFinite(s.estimatedCost) ? s.estimatedCost : 0
+      return sum + cost
+    }, 0),
     [purchasePriorityList]
   )
 
@@ -99,8 +113,6 @@ export default function Inventory() {
       consumed: Math.round(s.totalConsumed * 100) / 100,
       ratio: s.totalPurchased > 0 ? Math.round((s.stock / s.totalPurchased) * 100) : 0,
     }))
-
-  const priorityOrder = { high: 0, medium: 1, low: 2 }
 
   const renderRestockItem = (item: RestockSuggestion) => {
     const colors = PRIORITY_COLORS[item.priority]
@@ -179,7 +191,9 @@ export default function Inventory() {
           <div className="px-4 pb-4 border-t border-surface-600/50 pt-3">
             <p className="text-xs text-gray-400 mb-2">📊 消耗来源（近{lookbackDays}天）</p>
             <div className="space-y-1.5">
-              {item.consumingDishes.map((d, i) => (
+              {item.consumingDishes.map((d, i) => {
+                const pct = item.dailyConsumption > 0 ? Math.round((d.dailyUsage / item.dailyConsumption) * 100) : 0
+                return (
                 <div key={i} className="flex items-center justify-between bg-surface-700/40 rounded-lg px-3 py-2">
                   <div className="flex items-center gap-2">
                     <ChefHat size={12} className="text-gray-500" />
@@ -188,10 +202,10 @@ export default function Inventory() {
                   <div className="flex items-center gap-4 text-xs">
                     <span className="text-gray-400">共售{d.portions}份</span>
                     <span className="text-gray-300 font-medium">日均{d.dailyUsage.toFixed(2)}{item.unit}</span>
-                    <span className="text-brand-400 font-medium">占比{Math.round((d.dailyUsage / item.dailyConsumption) * 100)}%</span>
+                    <span className="text-brand-400 font-medium">占比{pct}%</span>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
             {item.affectedHighSalesDishes.length > 0 && (
               <div className="mt-3 pt-3 border-t border-surface-600/30">
@@ -265,7 +279,9 @@ export default function Inventory() {
           <div className="px-4 pb-4 border-t border-surface-600/50 pt-3">
             <p className="text-xs text-gray-400 mb-2">📊 消耗来源（近{lookbackDays}天）</p>
             <div className="space-y-1.5">
-              {item.consumingDishes.map((d: any, i: number) => (
+              {item.consumingDishes.map((d: any, i: number) => {
+                const pct = item.dailyConsumption > 0 ? Math.round((d.dailyUsage / item.dailyConsumption) * 100) : 0
+                return (
                 <div key={i} className="flex items-center justify-between bg-surface-700/40 rounded-lg px-3 py-2">
                   <div className="flex items-center gap-2">
                     <ChefHat size={12} className="text-gray-500" />
@@ -274,10 +290,10 @@ export default function Inventory() {
                   <div className="flex items-center gap-4 text-xs">
                     <span className="text-gray-400">共售{d.portions}份</span>
                     <span className="text-gray-300 font-medium">日均{d.dailyUsage.toFixed(2)}{item.unit}</span>
-                    <span className="text-brand-400 font-medium">占比{Math.round((d.dailyUsage / item.dailyConsumption) * 100)}%</span>
+                    <span className="text-brand-400 font-medium">占比{pct}%</span>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           </div>
         )}
